@@ -1,30 +1,27 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const qrcode = require('qrcode-terminal')
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+async function startBot() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth')
+  const sock = makeWASocket({ auth: state, printQRInTerminal: true })
+  sock.ev.on('creds.update', saveCreds)
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if(connection === 'close') {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode!== DisconnectReason.loggedOut
+      console.log('Disconnected, restarting...')
+      if(shouldReconnect) startBot()
+    } else if(connection === 'open') {
+      console.log('BOT ONLINE!')
     }
-});
-
-client.on('qr', qr => {
-    qrcode.generate(qr, {small: true});
-    console.log('Scan QR hii!');
-});
-
-client.on('ready', () => {
-    console.log('Bot iko tayari! ✅');
-});
-
-client.on('message', async msg => {
-    if (msg.body.toLowerCase() === 'habari') {
-        msg.reply('Habari Prince! Mimi ni bot wako 🤖. Niko tayari!');
-    } 
-    else if (msg.body.toLowerCase().startsWith('ai ')) {
-        const prompt = msg.body.slice(3);
-        msg.reply(`Umeuliza: ${prompt}\n\nNa-process...`);
+  })
+  sock.ev.on('messages.upsert', async m => {
+    const msg = m.messages[0]
+    if(!msg.message) return
+    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
+    if(text.toLowerCase() === '.ping') {
+      await sock.sendMessage(msg.key.remoteJid, { text: 'Pong! Prince Bot iko hai 🏓' })
     }
-});
-
-client.initialize();
+  })
+}
+startBot()
