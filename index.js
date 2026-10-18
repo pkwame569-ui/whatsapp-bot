@@ -9,9 +9,9 @@ const QRCode = require('qrcode');
 const P = require('pino');
 const { GoogleGenAI } = require('@google/genai');
 
-// ================================
+// =====================================
 // MBILAO PROJECT CONSULTANT WORLDWIDE
-// ================================
+// =====================================
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -24,59 +24,60 @@ let reconnectTimer = null;
 
 const processedMessages = new Set();
 
-// Gemini API
+// =====================================
+// GEMINI CONFIGURATION
+// =====================================
+
 const ai = process.env.GEMINI_API_KEY
     ? new GoogleGenAI({
         apiKey: process.env.GEMINI_API_KEY
     })
     : null;
 
-// Maelekezo ya biashara
+// =====================================
+// BUSINESS INFORMATION
+// =====================================
+
 const BUSINESS_INFO = `
-You are the professional AI customer service assistant
-for MBILAO PROJECT CONSULTANT WORLDWIDE.
+You are the AI customer service assistant for
+MBILAO PROJECT CONSULTANT WORLDWIDE.
 
-BUSINESS SERVICES:
-- Project proposal writing.
-- Grant writing and grant application support.
-- Business plan preparation.
-- Feasibility studies.
-- Monitoring and evaluation.
-- Data collection and documentation.
-- Project budgeting and financial narratives.
-- Strategic planning.
-- Logframes and theory of change.
-- Project planning and management.
-- AI chatbots and business automation.
+Our services include:
+1. Project proposal writing.
+2. Grant writing and grant application support.
+3. Business plan preparation.
+4. Feasibility studies.
+5. Monitoring and evaluation.
+6. Data collection and documentation.
+7. Project budgeting and financial narratives.
+8. Strategic planning.
+9. Logframes and theory of change.
+10. Project planning and management.
+11. AI chatbots and business automation.
 
-TARGET CLIENTS:
-NGOs, CBOs, entrepreneurs, community organizations,
+Our clients include NGOs, CBOs, entrepreneurs,
 project founders and private businesses.
 
-YOUR RESPONSIBILITIES:
-1. Understand the customer's question before answering.
-2. Answer naturally and professionally.
-3. Reply in the same language as the customer.
-4. Use Kiswahili when the customer writes in Kiswahili.
-5. Use English when the customer writes in English.
-6. Explain services clearly and briefly.
-7. Ask follow-up questions when necessary.
-8. If someone needs a proposal, ask about the project,
-   location, beneficiaries, activities and budget.
-9. Never invent prices, client information or funding calls.
-10. Never guarantee that a customer will receive a grant.
-11. If you do not know something, say so honestly.
-12. Keep WhatsApp replies concise and easy to understand.
-13. Direct serious customers toward discussing their
-    project requirements with MBILAO PROJECT CONSULTANT
-    WORLDWIDE.
-
-You are an AI assistant, not a human employee.
+RULES:
+- Reply in the same language as the customer.
+- Use natural Kiswahili for Kiswahili messages.
+- Use professional English for English messages.
+- Understand the question before answering.
+- Explain services clearly and briefly.
+- Ask follow-up questions when necessary.
+- For project proposals, ask about the project,
+  location, beneficiaries, activities and budget.
+- Never invent service prices.
+- Never guarantee that a customer will receive a grant.
+- Do not invent funding opportunities or client details.
+- Be polite, professional and helpful.
+- Keep WhatsApp replies reasonably short.
+- If you do not know something, say so honestly.
 `;
 
-// ================================
-// GEMINI AI RESPONSE
-// ================================
+// =====================================
+// ASK GEMINI
+// =====================================
 
 async function askAI(message) {
     if (!ai) {
@@ -98,15 +99,17 @@ async function askAI(message) {
     const answer = interaction.output_text;
 
     if (!answer || !answer.trim()) {
-        throw new Error('Gemini haijarejesha jibu la maandishi.');
+        throw new Error(
+            'Gemini haijarejesha jibu la maandishi.'
+        );
     }
 
     return answer.trim();
 }
 
-// ================================
+// =====================================
 // WHATSAPP BOT
-// ================================
+// =====================================
 
 async function startBot() {
     if (starting) return;
@@ -114,10 +117,16 @@ async function startBot() {
     starting = true;
 
     try {
-        const auth = await useMultiFileAuthState('auth');
+        if (!process.env.GEMINI_API_KEY) {
+            console.error(
+                'WARNING: GEMINI_API_KEY haijawekwa.'
+            );
+        }
 
-        const state = auth.state;
-        const saveCreds = auth.saveCreds;
+        const {
+            state,
+            saveCreds
+        } = await useMultiFileAuthState('auth');
 
         sock = makeWASocket({
             auth: state,
@@ -132,10 +141,17 @@ async function startBot() {
 
         sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
+        // ---------------------------------
+        // CONNECTION STATUS
+        // ---------------------------------
 
-            // QR code ya kuunganisha WhatsApp
+        sock.ev.on('connection.update', async (update) => {
+            const {
+                connection,
+                lastDisconnect,
+                qr
+            } = update;
+
             if (qr) {
                 try {
                     qrCodeData = await QRCode.toDataURL(qr);
@@ -152,7 +168,6 @@ async function startBot() {
                 }
             }
 
-            // WhatsApp imeunganishwa
             if (connection === 'open') {
                 isLinked = true;
                 qrCodeData = null;
@@ -163,10 +178,10 @@ async function startBot() {
                 );
             }
 
-            // Muunganisho umekatika
             if (connection === 'close') {
                 isLinked = false;
                 starting = false;
+                sock = null;
 
                 const statusCode =
                     lastDisconnect?.error?.output?.statusCode;
@@ -176,29 +191,25 @@ async function startBot() {
                     statusCode || 'unknown'
                 );
 
-                if (statusCode === DisconnectReason.loggedOut) {
+                if (
+                    statusCode === DisconnectReason.loggedOut
+                ) {
                     qrCodeData = null;
 
-                    console.log(
-                        'WhatsApp imelogout. Itahitaji kuunganishwa tena.'
+                    console.error(
+                        'WhatsApp imelogout. Utahitaji kuunganisha tena.'
                     );
 
                     return;
                 }
 
-                // Jaribu kuunganisha tena
-                if (!reconnectTimer) {
-                    reconnectTimer = setTimeout(() => {
-                        reconnectTimer = null;
-                        startBot();
-                    }, 5000);
-                }
+                scheduleReconnect();
             }
         });
 
-        // ================================
-        // POKEA UJUMBE
-        // ================================
+        // ---------------------------------
+        // RECEIVE AND REPLY TO MESSAGES
+        // ---------------------------------
 
         sock.ev.on(
             'messages.upsert',
@@ -208,24 +219,18 @@ async function startBot() {
                 for (const msg of messages) {
                     try {
                         if (!msg.message) continue;
-
                         if (msg.key.fromMe) continue;
 
                         const jid = msg.key.remoteJid;
 
                         if (!jid) continue;
-
-                        // Puuza group messages
                         if (jid.endsWith('@g.us')) continue;
-
-                        // Puuza status
                         if (jid === 'status@broadcast') continue;
 
                         const messageId = msg.key.id;
 
                         if (!messageId) continue;
 
-                        // Zuia kujibu ujumbe uleule mara mbili
                         if (processedMessages.has(messageId)) {
                             continue;
                         }
@@ -253,7 +258,6 @@ async function startBot() {
 
                         const userMessage = incomingText.trim();
 
-                        // Kwa sasa jibu ujumbe wa maandishi pekee
                         if (!userMessage) continue;
 
                         console.log(
@@ -284,7 +288,9 @@ async function startBot() {
                             { quoted: msg }
                         );
 
-                        console.log('REPLY SENT SUCCESSFULLY');
+                        console.log(
+                            'REPLY SENT SUCCESSFULLY'
+                        );
 
                     } catch (error) {
                         console.error(
@@ -304,18 +310,26 @@ async function startBot() {
             error.message || error
         );
 
-        if (!reconnectTimer) {
-            reconnectTimer = setTimeout(() => {
-                reconnectTimer = null;
-                startBot();
-            }, 10000);
-        }
+        scheduleReconnect();
     }
 }
 
-// ================================
-// WEBSITE YA BOT NA QR CODE
-// ================================
+// =====================================
+// RECONNECT
+// =====================================
+
+function scheduleReconnect() {
+    if (reconnectTimer) return;
+
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        startBot();
+    }, 5000);
+}
+
+// =====================================
+// WEBSITE AND QR CODE
+// =====================================
 
 app.get('/', (req, res) => {
     if (isLinked) {
@@ -327,12 +341,12 @@ app.get('/', (req, res) => {
                       content="width=device-width, initial-scale=1">
                 <title>MBILAO AI BOT</title>
             </head>
-            <body style="font-family:Arial;text-align:center;padding:30px">
-                <h1>MBILAO PROJECT CONSULTANT WORLDWIDE</h1>
-                <h2 style="color:green">
-                    WhatsApp Connected Successfully ✅
-                </h2>
-                <p>Bot iko tayari kupokea ujumbe.</p>
+            <body style="font-family:Arial;text-align:center;padding:25px">
+                <h2>MBILAO PROJECT CONSULTANT WORLDWIDE</h2>
+                <h3 style="color:green">
+                    WhatsApp Connected Successfully
+                </h3>
+                <p>Bot imeunganishwa na WhatsApp.</p>
             </body>
             </html>
         `);
@@ -345,16 +359,16 @@ app.get('/', (req, res) => {
             <head>
                 <meta name="viewport"
                       content="width=device-width, initial-scale=1">
-                <title>Unganisha WhatsApp</title>
+                <title>WhatsApp QR</title>
             </head>
             <body style="font-family:Arial;text-align:center;padding:20px">
                 <h2>MBILAO AI BOT</h2>
-                <p>Scan QR code hii kwa WhatsApp yako.</p>
+                <p>Scan QR code kwa kutumia WhatsApp.</p>
                 <img src="${qrCodeData}"
                      alt="WhatsApp QR Code"
                      style="width:280px;max-width:90%">
-                <p>Fungua WhatsApp → Linked Devices → Link a Device.</p>
-                <p>Ukurasa huu utajirejesha baada ya sekunde 10.</p>
+                <p>WhatsApp → Linked Devices → Link a Device</p>
+                <p>Ukurasa utajirejesha baada ya sekunde 10.</p>
                 <script>
                     setTimeout(() => location.reload(), 10000);
                 </script>
@@ -371,10 +385,9 @@ app.get('/', (req, res) => {
                   content="width=device-width, initial-scale=1">
             <title>MBILAO AI BOT</title>
         </head>
-        <body style="font-family:Arial;text-align:center;padding:30px">
+        <body style="font-family:Arial;text-align:center;padding:25px">
             <h2>MBILAO PROJECT CONSULTANT WORLDWIDE</h2>
-            <p>Bot inaanza au inasubiri QR code...</p>
-            <p>Ukurasa huu utajirejesha baada ya sekunde 5.</p>
+            <p>Bot inaanza. Subiri QR code...</p>
             <script>
                 setTimeout(() => location.reload(), 5000);
             </script>
@@ -383,7 +396,10 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Health check
+// =====================================
+// HEALTH CHECK
+// =====================================
+
 app.get('/health', (req, res) => {
     res.json({
         status: 'running',
@@ -393,18 +409,14 @@ app.get('/health', (req, res) => {
     });
 });
 
-// ================================
-// ANZISHA SERVER
-// ================================
+// =====================================
+// START SERVER
+// =====================================
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-
-    if (!process.env.GEMINI_API_KEY) {
-        console.error(
-            'WARNING: GEMINI_API_KEY haijawekwa kwenye Render.'
-        );
-    }
+    console.log(
+        `MBILAO BOT SERVER RUNNING ON PORT ${PORT}`
+    );
 
     startBot();
 });
